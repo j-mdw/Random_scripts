@@ -2,7 +2,7 @@
 
 ## Has your password been pwned? Find out the secure way
 
-## How to us?
+## How to use?
 ## bash ispwned.sh <password>
 ## Requirements: shasum, curl, bash
 
