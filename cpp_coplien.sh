@@ -8,30 +8,39 @@ then
 	exit
 fi
 
+xIFS=$IFS	# Saving internal field separator
+
+
 ### Coplien Canonical class: header file
 
 hppfile=$1".hpp"
 
-COP="#ifndef CANON_H\n
-# define CANON_H\n
-\n
-class Canon {\n
-\n
-public:\n
-\n
-    \tCanon(void);\n
-    \tCanon(Canon const & src);\n
-    \t~Canon(void);\n
-\n
-    \tCanon &  operator=(Canon const & src);\n
-\n
-private:\n
-\n
-};\n
-\n
+COP="#ifndef CANON_H
+# define CANON_H
+
+class Canon {
+
+public:
+
+    Canon(void);
+    Canon(Canon const & src);
+    ~Canon(void);
+
+    Canon &  operator=(Canon const & src);
+
+private:
+
+};
+
 #endif"
 
+
+IFS=''		# Setting IFS to empty
+
 echo -e $COP > $hppfile # -e flag interprets escape sequences
+
+IFS=$xIFS  # Resetting IFS
+
 
 sed -i '' s/Canon/$1/g $hppfile
 
@@ -43,22 +52,27 @@ sed -i '' s/CANON/$UPPER/g $hppfile
 
 cppfile=$1".cpp"
 
-COP='#include "Canon.hpp"\n
-\n
-Canon::Canon(void) {}\n\n
-Canon::Canon(Canon const & src)\n
-{\n
-    \t(void)src;\n
-}\n
-\n
-Canon::~Canon(void) {}\n
-\n
-Canon &\n
-Canon::operator=(Canon const & src)\n
-{\n
-    \treturn (*this);\n
-}\n'
+COP='#include "Canon.hpp"
+
+Canon::Canon(void) {}
+
+Canon::Canon(Canon const & src)
+{
+    (void)src;
+}
+
+Canon::~Canon(void) {}
+
+Canon &
+Canon::operator=(Canon const & src)
+{
+    return (*this);
+}'
+
+IFS=''
 
 echo -e $COP > $cppfile
+
+IFS=$xIFS
 
 sed -i '' s/Canon/$1/g $cppfile
