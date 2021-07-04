@@ -18,17 +18,17 @@ hppfile=$1".hpp"
 COP="#ifndef CANON_H
 # define CANON_H
 
-class Canon {
+class Canon
+{
+	public:
 
-public:
+    	Canon(void);
+    	Canon(Canon const & src);
+    	~Canon(void);
+		
+		Canon &  operator=(Canon const & src);
 
-    Canon(void);
-    Canon(Canon const & src);
-    ~Canon(void);
-
-    Canon &  operator=(Canon const & src);
-
-private:
+	private:
 
 };
 
