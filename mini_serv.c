@@ -4,9 +4,9 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/select.h>
-#include <stdio.h>
 
 typedef struct s_list {
 	int id;
@@ -17,7 +17,7 @@ typedef struct s_list {
 } t_list;
 
 t_list *g_begin = NULL;
-int g_sockfd = -1;
+int		g_sockfd = -1;
 
 t_list *lst_create(int fd)
 {
@@ -35,9 +35,16 @@ t_list *lst_create(int fd)
 	return client;
 }
 
+void lst_push(t_list *client)
+{
+	client->next = g_begin;
+	g_begin = client;
+}
+
 void lst_del_one(t_list *client)
 {
-	close(client->fd);
+	if (client->fd >= 0)
+		close(client->fd);
 	if (client->read_buf)
 		free(client->read_buf);
 	if (client->write_buf)
@@ -49,64 +56,36 @@ void lst_clear()
 {
 	t_list *itr = g_begin;
 	t_list *tmp;
-
-	if (!itr)
-		return;
-	while (itr->next)
+	while (itr)
 	{
 		tmp = itr;
 		itr = itr->next;
 		lst_del_one(tmp);
 	}
-	lst_del_one(itr);
 	g_begin = NULL;
 }
 
-t_list *lst_find(int fd)
+void lst_remove_one(t_list *client)
 {
 	t_list *itr = g_begin;
-	while (itr)
-	{
-		if (itr->fd == fd)
-			return itr;
-		itr = itr->next;
-	}
-	return NULL;
-}
 
-void lst_push(t_list *client)
-{
-	if (client)
-	{
-		client->next = g_begin;
-		g_begin = client;
-	}
-}
-
-void lst_remove_one(int fd)
-{
-	t_list *itr = g_begin;
-	t_list *tmp;
 	if (!itr)
-		return ;
-	if (itr->fd == fd)
+		return;
+	if (itr == client)
 	{
 		g_begin = itr->next;
-		lst_del_one(itr);
+		lst_del_one(client);
+		return;
 	}
-	else
+	while (itr->next)
 	{
-		while(itr->next)
+		if (itr->next == client)
 		{
-			if (itr->next->fd == fd)
-			{
-				tmp = itr->next;
-				itr->next = itr->next->next;
-				lst_del_one(tmp);
-				return ;
-			}
-			itr = itr->next;
+			itr->next = itr->next->next;
+			lst_del_one(client);
+			return;
 		}
+		itr = itr->next;
 	}
 }
 
@@ -115,10 +94,12 @@ int fatal_error()
 	if (g_sockfd >= 0)
 		close(g_sockfd);
 	lst_clear();
-	char *msg = "Fatal errori\n";
+	char *msg = "Fatal error\n";
 	write(2, msg, strlen(msg));
 	return 1;
 }
+
+
 
 int extract_message(char **buf, char **msg)
 {
@@ -167,15 +148,14 @@ char *str_join(char *buf, char *add)
 	return (newbuf);
 }
 
-int add_msg_to_clients(int id, char *msg)
+int add_msg_to_all(int skip_id, char *msg)
 {
 	t_list *itr = g_begin;
 	while (itr)
 	{
-		if (itr->id != id)
+		if (itr->id != skip_id)
 		{
-			char *tmp = itr->write_buf;
-			tmp = str_join(itr->write_buf, msg);
+			char *tmp = str_join(itr->write_buf, msg);
 			if (!tmp)
 				return 0;
 			itr->write_buf = tmp;
@@ -183,18 +163,16 @@ int add_msg_to_clients(int id, char *msg)
 		itr = itr->next;
 	}
 	return 1;
-
 }
 
 int broadcast_msg(int id, char *msg)
 {
-	char *buf = (char *)malloc(sizeof(char) * strlen(msg) + 50);
+	char *buf = (char *)malloc(sizeof(char) * (strlen(msg) + 50));
 	if (!buf)
 		return 0;
-	int len = sprintf(buf, "client %d: %s", id,  msg);
+	int len = sprintf(buf, "client %d: %s", id, msg);
 	buf[len] = '\0';
-	
-	if (!add_msg_to_clients(id, buf))
+	if (!add_msg_to_all(id, buf))
 	{
 		free(buf);
 		return 0;
@@ -205,49 +183,48 @@ int broadcast_msg(int id, char *msg)
 
 int broadcast_join(int id)
 {
-	char msg[100];
-	int len = sprintf(msg, "server: client %d just arrived\n", id);
-	msg[len] = '\0';
-	if (!add_msg_to_clients(id, msg))
+	char buf[50];
+	int len = sprintf(buf, "server: client %d just arrived\n", id);
+	buf[len] = '\0';
+	if (!add_msg_to_all(id, buf))
 		return 0;
 	return 1;
 }
 
 int broadcast_leave(int id)
 {
-	char msg[100];
-	int len = sprintf(msg, "server: client %d just left\n", id);
-	msg[len] = '\0';
-	if (!add_msg_to_clients(id, msg))
+	char buf[50];
+	int len = sprintf(buf, "server: client %d just left\n", id);
+	buf[len] = '\0';
+	if (!add_msg_to_all(id, buf))
 		return 0;
 	return 1;
 }
 
 int main(int ac, char **av) {
 	socklen_t len;
-	struct sockaddr_in servaddr, cli; 
-	char recv_buf[1024];
+	struct sockaddr_in servaddr, cli;
 
-	if (ac != 2)
+	if (ac < 2)
 	{
 		char *msg = "Wrong number of arguments\n";
 		write(2, msg, strlen(msg));
 		return 1;
 	}
 
-	g_sockfd = socket(AF_INET, SOCK_STREAM, 0); 
-	if (g_sockfd == -1) { 
+	g_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	if (g_sockfd == -1) {
 		return fatal_error();
-	} 
-	bzero(&servaddr, sizeof(servaddr)); 
-
-	servaddr.sin_family = AF_INET; 
+	}
+	bzero(&servaddr, sizeof(servaddr));
+	servaddr.sin_family = AF_INET;
 	servaddr.sin_addr.s_addr = htonl(2130706433); //127.0.0.1
 	servaddr.sin_port = htons(atoi(av[1]));
-  
-	if ((bind(g_sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0) { 
+
+	// Binding newly created socket to given IP and verification
+	if ((bind(g_sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0) {
 		return fatal_error();
-	} 
+	}
 	if (listen(g_sockfd, 10) != 0) {
 		return fatal_error();
 	}
@@ -255,8 +232,11 @@ int main(int ac, char **av) {
 	fd_set fdset;
 	fd_set read_fds;
 	fd_set write_fds;
+
 	FD_ZERO(&fdset);
 	FD_SET(g_sockfd, &fdset);
+
+	char recv_buf[1024];
 
 	while (1)
 	{
@@ -265,7 +245,6 @@ int main(int ac, char **av) {
 
 		if (select(FD_SETSIZE, &read_fds, &write_fds, NULL, NULL) < 0)
 			return fatal_error();
-	
 		if (FD_ISSET(g_sockfd, &read_fds))
 		{
 			len = sizeof(cli);
@@ -273,16 +252,16 @@ int main(int ac, char **av) {
 			if (connfd < 0) {
     			return fatal_error();
 			}
-			FD_SET(connfd, &fdset);
 			t_list *new_client = lst_create(connfd);
 			if (!new_client)
 			{
 				close(connfd);
 				return fatal_error();
 			}
+			lst_push(new_client);
 			if (!broadcast_join(new_client->id))
 				return fatal_error();
-			lst_push(new_client);
+			FD_SET(connfd, &fdset);
 		}
 		t_list *itr = g_begin;
 		while (itr)
@@ -292,50 +271,44 @@ int main(int ac, char **av) {
 				int recv_ret = recv(itr->fd, recv_buf, 1023, 0);
 				if (recv_ret <= 0)
 				{
-					broadcast_leave(itr->id);
 					FD_CLR(itr->fd, &fdset);
-					int client_fd = itr->fd;
-					itr = itr->next;
-					lst_remove_one(client_fd);
-				}
-				else
-				{
-					recv_buf[recv_ret] = '\0';
-					char *tmp;
-					tmp = str_join(itr->read_buf, recv_buf);
-					if (!tmp)
+					if (!broadcast_leave(itr->id))
 						return fatal_error();
-					itr->read_buf = tmp;
-					int ext_ret;
-					char *ext_msg = NULL;
-					while ((ext_ret = extract_message(&itr->read_buf, &ext_msg)) != 0)
-					{
-						if (ext_ret == -1)
-							return fatal_error();
-						if (!broadcast_msg(itr->id, ext_msg))
-						{
-							free(ext_msg);
-							return fatal_error();
-						}
-						free(ext_msg);
-						ext_msg = NULL;
-					}
+					t_list *tmp = itr;
 					itr = itr->next;
+					lst_remove_one(tmp);
+					continue;
+				}
+				recv_buf[recv_ret] = '\0';
+				char *tmp = str_join(itr->read_buf, recv_buf);
+				if (!tmp)
+					return fatal_error();
+				itr->read_buf = tmp;
+				int ext_ret;
+				char *ext_msg = NULL;
+				while ((ext_ret = extract_message(&(itr->read_buf), &ext_msg)))
+				{
+					if (ext_ret == -1)
+						return fatal_error();
+					if (!broadcast_msg(itr->id, ext_msg))
+					{
+						free(ext_msg);
+						return fatal_error();
+					}
+					free(ext_msg);
+					ext_msg = NULL;
 				}
 			}
-			else
-			{
-				itr = itr->next;
-			}
+			itr = itr->next;
 		}
 		itr = g_begin;
 		while (itr)
 		{
 			if (FD_ISSET(itr->fd, &write_fds) && itr->write_buf)
 			{
-				int msg_size = strlen(itr->write_buf);
-				int send_ret = send(itr->fd, itr->write_buf, msg_size, 0);
-				if (send_ret == msg_size)
+				int size = strlen(itr->write_buf);
+				int send_ret = send(itr->fd, itr->write_buf, size, 0);
+				if (send_ret == size)
 				{
 					free(itr->write_buf);
 					itr->write_buf = NULL;
